@@ -4019,6 +4019,7 @@ EOF
     cat <<EOF >/etc/v2ray-agent/xray/conf/09_routing.json
 {
   "routing": {
+    "domainStrategy": "AsIs",
     "rules": [
       {
         "type": "field",
@@ -6807,7 +6808,7 @@ addInstallRouting() {
         cat <<EOF >${configPath}09_routing.json
 {
     "routing":{
-        "type": "field",
+        "domainStrategy": "AsIs",
         "rules": [
             {
                 "type": "field",
@@ -8179,6 +8180,7 @@ setSocks5OutboundRouting() {
             cat <<EOF >${configPath}09_routing.json
 {
     "routing":{
+        "domainStrategy": "AsIs",
         "rules": []
   }
 }

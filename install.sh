@@ -3411,6 +3411,7 @@ generateUniqueOutboundTag() {
 # 添加Xray-core 出站
 addXrayOutbound() {
     local tag=$1
+    local originalTag=$1
     local domainStrategy=
 
     # 如果是多实例标签，生成唯一标签
@@ -3418,9 +3419,9 @@ addXrayOutbound() {
         tag=$(generateUniqueOutboundTag "${tag}")
     fi
 
-    if echo "${tag}" | grep -q "IPv4"; then
+    if echo "${originalTag}" | grep -q "IPv4"; then
         domainStrategy="ForceIPv4"
-    elif echo "${tag}" | grep -q "IPv6"; then
+    elif echo "${originalTag}" | grep -q "IPv6"; then
         domainStrategy="ForceIPv6"
     fi
 
@@ -3440,7 +3441,7 @@ addXrayOutbound() {
 EOF
     fi
     # direct
-    if echo "${tag}" | grep -q "direct"; then
+    if echo "${originalTag}" | grep -q "direct"; then
         cat <<EOF >"/etc/v2ray-agent/xray/conf/${tag}.json"
 {
     "outbounds":[
@@ -3456,7 +3457,7 @@ EOF
 EOF
     fi
     # blackhole
-    if echo "${tag}" | grep -q "blackhole"; then
+    if echo "${originalTag}" | grep -q "blackhole"; then
         cat <<EOF >"/etc/v2ray-agent/xray/conf/${tag}.json"
 {
     "outbounds":[
@@ -3469,7 +3470,7 @@ EOF
 EOF
     fi
     # socks5 outbound
-    if echo "${tag}" | grep -q "socks5"; then
+    if echo "${originalTag}" | grep -q "socks5"; then
         cat <<EOF >"/etc/v2ray-agent/xray/conf/${tag}.json"
 {
   "outbounds": [
@@ -3495,7 +3496,7 @@ EOF
 }
 EOF
     fi
-    if echo "${tag}" | grep -q "wireguard_out_IPv4"; then
+    if echo "${originalTag}" | grep -q "wireguard_out_IPv4"; then
         cat <<EOF >"/etc/v2ray-agent/xray/conf/${tag}.json"
 {
   "outbounds": [
@@ -3525,7 +3526,7 @@ EOF
 }
 EOF
     fi
-    if echo "${tag}" | grep -q "wireguard_out_IPv6"; then
+    if echo "${originalTag}" | grep -q "wireguard_out_IPv6"; then
         cat <<EOF >"/etc/v2ray-agent/xray/conf/${tag}.json"
 {
   "outbounds": [
@@ -3555,7 +3556,7 @@ EOF
 }
 EOF
     fi
-    if echo "${tag}" | grep -q "vless-out"; then
+    if echo "${originalTag}" | grep -q "vless-out"; then
         # 根据网络类型和安全类型生成不同的配置
         local networkType="${setVLESSWSTLSNetwork:-ws}"
         local securityType="${setVLESSWSTLSSecurity:-tls}"
@@ -3654,7 +3655,7 @@ EOF
 }
 EOF
     fi
-    if echo "${tag}" | grep -q -i "shadowsocks-out"; then
+    if echo "${originalTag}" | grep -q -i "shadowsocks-out"; then
         cat <<EOF >"/etc/v2ray-agent/xray/conf/${tag}.json"
 {
   "outbounds": [
@@ -3676,7 +3677,7 @@ EOF
 }
 EOF
     fi
-    if echo "${tag}" | grep -q "vmess-out"; then
+    if echo "${originalTag}" | grep -q "vmess-out"; then
         cat <<EOF >"/etc/v2ray-agent/xray/conf/${tag}.json"
 {
   "outbounds": [

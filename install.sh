@@ -2285,7 +2285,7 @@ installSingBox() {
 
         version=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases?per_page=20" | jq -r ".[]|select (.prerelease==${prereleaseStatus})|.tag_name" | head -1)
 
-        echoContent green " ---> sing-box版本:${version}"
+        echoContent green " ---> 最新版本:${version}"
 
         if [[ "${release}" == "alpine" ]]; then
             wget -c -q -P /etc/v2ray-agent/sing-box/ "https://github.com/SagerNet/sing-box/releases/download/${version}/sing-box-${version/v/}${singBoxCoreCPUVendor}.tar.gz"
@@ -2307,7 +2307,11 @@ installSingBox() {
             chmod 655 /etc/v2ray-agent/sing-box/sing-box
         fi
     else
-        echoContent green " ---> sing-box版本:v$(/etc/v2ray-agent/sing-box/sing-box version | grep "sing-box version" | awk '{print $3}')"
+        echoContent green " ---> 当前版本:v$(/etc/v2ray-agent/sing-box/sing-box version | grep "sing-box version" | awk '{print $3}')"
+
+        version=$(curl -s "https://api.github.com/repos/SagerNet/sing-box/releases?per_page=20" | jq -r ".[]|select (.prerelease==${prereleaseStatus})|.tag_name" | head -1)
+        echoContent green " ---> 最新版本:${version}"
+
         if [[ -z "${lastInstallationConfig}" ]]; then
             read -r -p "是否更新、升级？[y/n]:" reInstallSingBoxStatus
             if [[ "${reInstallSingBoxStatus}" == "y" ]]; then
@@ -2485,7 +2489,10 @@ updateXray() {
         handleXray stop
         handleXray start
     else
-        echoContent green " ---> 当前Xray-core版本:$(/etc/v2ray-agent/xray/xray --version | awk '{print $2}' | head -1)"
+        echoContent green " ---> 当前版本:v$(/etc/v2ray-agent/xray/xray --version | awk '{print $2}' | head -1)"
+        remoteVersion=$(curl -s "https://api.github.com/repos/XTLS/Xray-core/releases?per_page=5" | jq -r ".[]|select (.prerelease==${prereleaseStatus})|.tag_name" | head -1)
+
+        echoContent green " ---> 最新版本:${remoteVersion}"
 
         if [[ -n "$1" ]]; then
             version=$1
@@ -3393,35 +3400,14 @@ EOF
     fi
 }
 
-# 生成唯一的出站标签
-generateUniqueOutboundTag() {
-    local baseTag=$1
-    local counter=1
-    local uniqueTag="${baseTag}"
-    
-    # 检查是否存在同名的出站配置
-    while [[ -f "/etc/v2ray-agent/xray/conf/${uniqueTag}.json" ]]; do
-        uniqueTag="${baseTag}-${counter}"
-        ((counter++))
-    done
-    
-    echo "${uniqueTag}"
-}
-
 # 添加Xray-core 出站
 addXrayOutbound() {
     local tag=$1
-    local originalTag=$1
     local domainStrategy=
 
-    # 如果是多实例标签，生成唯一标签
-    if echo "${tag}" | grep -q "-out$"; then
-        tag=$(generateUniqueOutboundTag "${tag}")
-    fi
-
-    if echo "${originalTag}" | grep -q "IPv4"; then
+    if echo "${tag}" | grep -q "IPv4"; then
         domainStrategy="ForceIPv4"
-    elif echo "${originalTag}" | grep -q "IPv6"; then
+    elif echo "${tag}" | grep -q "IPv6"; then
         domainStrategy="ForceIPv6"
     fi
 
@@ -3441,7 +3427,7 @@ addXrayOutbound() {
 EOF
     fi
     # direct
-    if echo "${originalTag}" | grep -q "direct"; then
+    if echo "${tag}" | grep -q "direct"; then
         cat <<EOF >"/etc/v2ray-agent/xray/conf/${tag}.json"
 {
     "outbounds":[
@@ -3457,7 +3443,7 @@ EOF
 EOF
     fi
     # blackhole
-    if echo "${originalTag}" | grep -q "blackhole"; then
+    if echo "${tag}" | grep -q "blackhole"; then
         cat <<EOF >"/etc/v2ray-agent/xray/conf/${tag}.json"
 {
     "outbounds":[
@@ -3470,7 +3456,7 @@ EOF
 EOF
     fi
     # socks5 outbound
-    if echo "${originalTag}" | grep -q "socks5"; then
+    if echo "${tag}" | grep -q "socks5"; then
         cat <<EOF >"/etc/v2ray-agent/xray/conf/${tag}.json"
 {
   "outbounds": [
@@ -3496,7 +3482,7 @@ EOF
 }
 EOF
     fi
-    if echo "${originalTag}" | grep -q "wireguard_out_IPv4"; then
+    if echo "${tag}" | grep -q "wireguard_out_IPv4"; then
         cat <<EOF >"/etc/v2ray-agent/xray/conf/${tag}.json"
 {
   "outbounds": [
@@ -3526,7 +3512,7 @@ EOF
 }
 EOF
     fi
-    if echo "${originalTag}" | grep -q "wireguard_out_IPv6"; then
+    if echo "${tag}" | grep -q "wireguard_out_IPv6"; then
         cat <<EOF >"/etc/v2ray-agent/xray/conf/${tag}.json"
 {
   "outbounds": [
@@ -3556,128 +3542,7 @@ EOF
 }
 EOF
     fi
-    if echo "${originalTag}" | grep -q "vless-out"; then
-        # 根据网络类型和安全类型生成不同的配置
-        local networkType="${setVLESSWSTLSNetwork:-ws}"
-        local securityType="${setVLESSWSTLSSecurity:-tls}"
-        local hostValue="${setVLESSWSTLSHost:-${setVLESSWSTLSAddress}}"
-        
-        # 构建基础配置
-        local streamSettings=""
-        local userSettings=""
-        
-        # 根据网络类型设置streamSettings
-        case "$networkType" in
-            "ws")
-                streamSettings='"network": "ws",
-        "security": "'${securityType}'",
-        "wsSettings": {
-          "path": "'${setVLESSWSTLSPath}'",
-          "headers": {
-            "Host": "'${hostValue}'"
-          }
-        }'
-                ;;
-            "tcp")
-                streamSettings='"network": "tcp",
-        "security": "'${securityType}'"'
-                ;;
-            "grpc")
-                streamSettings='"network": "grpc",
-        "security": "'${securityType}'",
-        "grpcSettings": {
-          "serviceName": "'${setVLESSWSTLSServiceName:-grpc}'"
-        }'
-                ;;
-            "xhttp")
-                streamSettings='"network": "xhttp",
-        "security": "'${securityType}'",
-        "xhttpSettings": {
-          "path": "'${setVLESSWSTLSPath}'"
-        }'
-                ;;
-        esac
-        
-        # 添加TLS设置
-        if [[ "$securityType" == "tls" ]]; then
-            streamSettings+=',
-        "tlsSettings": {
-          "allowInsecure": false,
-          "serverName": "'${hostValue}'"
-        }'
-        elif [[ "$securityType" == "reality" ]]; then
-            streamSettings+=',
-        "realitySettings": {
-          "show": false,
-          "dest": "'${hostValue}':443",
-          "xver": 0,
-          "serverNames": ["'${hostValue}'"],
-          "privateKey": "",
-          "shortIds": ["'${setVLESSWSTLSSid:-6ba85179e30d4fc2}'"],
-          "publicKey": "'${setVLESSWSTLSPbk}'"
-        }'
-        fi
-        
-        # 设置用户配置
-        if [[ -n "${setVLESSWSTLSFlow}" ]]; then
-            userSettings='"id": "'${setVLESSWSTLSUUID}'",
-                "encryption": "none",
-                "flow": "'${setVLESSWSTLSFlow}'"'
-        else
-            userSettings='"id": "'${setVLESSWSTLSUUID}'",
-                "encryption": "none"'
-        fi
-        
-        cat <<EOF >"/etc/v2ray-agent/xray/conf/${tag}.json"
-{
-  "outbounds": [
-    {
-      "tag": "${tag}",
-      "protocol": "vless",
-      "streamSettings": {
-        ${streamSettings}
-      },
-      "settings": {
-        "vnext": [
-          {
-            "address": "${setVLESSWSTLSAddress}",
-            "port": ${setVLESSWSTLSPort},
-            "users": [
-              {
-                ${userSettings}
-              }
-            ]
-          }
-        ]
-      }
-    }
-  ]
-}
-EOF
-    fi
-    if echo "${originalTag}" | grep -q -i "shadowsocks-out"; then
-        cat <<EOF >"/etc/v2ray-agent/xray/conf/${tag}.json"
-{
-  "outbounds": [
-    {
-      "tag": "${tag}",
-      "protocol": "shadowsocks",
-      "settings": {
-        "servers": [
-          {
-            "address": "${setShadowsocksAddress}",
-            "port": ${setShadowsocksPort},
-            "method": "${setShadowsocksMethod}",
-            "password": "${setShadowsocksPassword}"
-          }
-        ]
-      }
-    }
-  ]
-}
-EOF
-    fi
-    if echo "${originalTag}" | grep -q "vmess-out"; then
+    if echo "${tag}" | grep -q "vmess-out"; then
         cat <<EOF >"/etc/v2ray-agent/xray/conf/${tag}.json"
 {
   "outbounds": [
@@ -4019,7 +3884,6 @@ EOF
     cat <<EOF >/etc/v2ray-agent/xray/conf/09_routing.json
 {
   "routing": {
-    "domainStrategy": "AsIs",
     "rules": [
       {
         "type": "field",
@@ -6797,18 +6661,12 @@ addInstallRouting() {
         exit 0
     fi
 
-    # 检查出站配置文件是否存在
-    if [[ ! -f "/etc/v2ray-agent/xray/conf/${tag}.json" ]]; then
-        echoContent red " ---> 出站配置 ${tag} 不存在，请先创建出站配置"
-        return 1
-    fi
-
     local routingRule=
     if [[ ! -f "${configPath}09_routing.json" ]]; then
         cat <<EOF >${configPath}09_routing.json
 {
     "routing":{
-        "domainStrategy": "AsIs",
+        "type": "field",
         "rules": [
             {
                 "type": "field",
@@ -6821,8 +6679,6 @@ addInstallRouting() {
 }
 EOF
     fi
-    
-    # 查找是否已存在相同出站标签的规则
     local routingRule=
     routingRule=$(jq -r ".routing.rules[]|select(.outboundTag==\"${tag}\" and (.protocol == null))" ${configPath}09_routing.json)
 
@@ -6831,7 +6687,7 @@ EOF
     fi
 
     while read -r line; do
-        if echo "${routingRule}" | grep -qF "${line}"; then
+        if echo "${routingRule}" | grep -q "${line}"; then
             echoContent yellow " ---> ${line}已存在，跳过"
         else
             local geositeStatus
@@ -7165,11 +7021,10 @@ routingToolsMenu() {
     echoContent yellow "3.IPv6分流"
     echoContent yellow "4.Socks5分流【替换任意门分流】"
     echoContent yellow "5.DNS分流"
-    echoContent yellow "6.VLESS分流"
-    echoContent yellow "7.VMess分流"
-    echoContent yellow "8.Shadowsocks分流"
-    echoContent yellow "9.SNI反向代理分流"
-    echoContent yellow "10.分流管理【查看/编辑/删除分流规则】"
+    #    echoContent yellow "6.VMess+WS+TLS分流"
+    echoContent yellow "7.SNI反向代理分流"
+    echoContent yellow "8.Shadowsocks分流【支持链接导入】"
+    echoContent yellow "9.VLESS分流【支持链接导入】"
 
     read -r -p "请选择:" selectType
 
@@ -7189,505 +7044,45 @@ routingToolsMenu() {
     5)
         dnsRouting 1
         ;;
-    6)
-        if [[ -n "${singBoxConfigPath}" ]]; then
-            echoContent red "\n ---> 此功能不支持Hysteria2、Tuic"
-        fi
-        vlessRouting 1
-        ;;
+        #    6)
+        #        if [[ -n "${singBoxConfigPath}" ]]; then
+        #            echoContent red "\n ---> 此功能不支持Hysteria2、Tuic"
+        #        fi
+        #        vmessWSRouting 1
+        #        ;;
     7)
-        if [[ -n "${singBoxConfigPath}" ]]; then
-            echoContent red "\n ---> 此功能不支持Hysteria2、Tuic"
-        fi
-        vmessRouting 1
-        ;;
-    8)
-        if [[ -n "${singBoxConfigPath}" ]]; then
-            echoContent red "\n ---> 此功能不支持Hysteria2、Tuic"
-        fi
-        shadowsocksRouting 1
-        ;;
-    9)
         if [[ -n "${singBoxConfigPath}" ]]; then
             echoContent red "\n ---> 此功能不支持Hysteria2、Tuic"
         fi
         sniRouting 1
         ;;
-    10)
-        routingManagement
+    8)
+        shadowsocksRouting
+        ;;
+    9)
+        vlessRouting
         ;;
     esac
 
 }
 
-# 分流管理
-routingManagement() {
-    echoContent skyBlue "\n功能 1/1 : 分流管理"
-    echoContent red "\n=============================================================="
-    echoContent yellow "# 分流规则管理功能\n"
-
-    echoContent yellow "1.查看所有分流规则"
-    echoContent yellow "2.添加新的分流规则"
-    echoContent yellow "3.编辑现有分流规则"
-    echoContent yellow "4.删除分流规则"
-    echoContent yellow "5.批量管理分流规则"
-    read -r -p "请选择:" selectType
-
-    case ${selectType} in
-    1)
-        showAllRoutingRules
-        routingManagement
-        ;;
-    2)
-        addNewRoutingRule
-        routingManagement
-        ;;
-    3)
-        editRoutingRule
-        routingManagement
-        ;;
-    4)
-        deleteRoutingRule
-        routingManagement
-        ;;
-    5)
-        batchRoutingManagement
-        routingManagement
-        ;;
-    *)
-        echoContent red " ---> 无效选择"
-        routingManagement
-        ;;
-    esac
-}
-
-# 查看所有分流规则
-showAllRoutingRules() {
-    echoContent skyBlue "\n===================== 所有分流规则 =====================\n"
-    
-    if [[ -f "${configPath}09_routing.json" ]]; then
-        local rules
-        rules=$(jq -r '.routing.rules[]' "${configPath}09_routing.json" 2>/dev/null)
-        
-        if [[ -n "${rules}" ]]; then
-            local index=1
-            echo "${rules}" | jq -c . | while read -r rule; do
-                local outboundTag=$(echo "${rule}" | jq -r '.outboundTag')
-                local domains=$(echo "${rule}" | jq -r '.domain[]?' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
-                
-                echoContent yellow "[${index}] 出站标签: ${outboundTag}"
-                if [[ -n "${domains}" ]]; then
-                    echoContent green "    域名: ${domains}"
-                fi
-                echoContent skyBlue "    规则: ${rule}"
-                echo
-                ((index++))
-            done
-        else
-            echoContent yellow " ---> 未找到任何分流规则"
-        fi
-    else
-        echoContent yellow " ---> 未找到路由配置文件"
-    fi
-}
-
-# 添加新的分流规则
-addNewRoutingRule() {
-    echoContent skyBlue "\n===================== 添加新分流规则 =====================\n"
-    
-    echoContent yellow "请选择协议类型:"
-    echoContent yellow "1. VLESS"
-    echoContent yellow "2. VMess"
-    echoContent yellow "3. Shadowsocks"
-    echoContent yellow "4. Socks5"
-    echoContent yellow "5. 自定义出站标签"
-    read -r -p "请选择:" protocolType
-    
-    local outboundTag=""
-    local configMethod=""
-    
-    case ${protocolType} in
-    1)
-        echoContent skyBlue "\n请选择配置方式:"
-        echoContent yellow "1. 手动输入参数"
-        echoContent yellow "2. 导入VLESS连接"
-        read -r -p "请选择:" configMethod
-        
-        if [[ "${configMethod}" == "1" ]]; then
-            setVLESSWSRoutingOutbounds
-        elif [[ "${configMethod}" == "2" ]]; then
-            setVLESSWSRoutingOutbounds
-        fi
-        ;;
-    2)
-        echoContent skyBlue "\n请选择配置方式:"
-        echoContent yellow "1. 手动输入参数"
-        echoContent yellow "2. 导入VMess连接"
-        read -r -p "请选择:" configMethod
-        
-        if [[ "${configMethod}" == "1" ]]; then
-            setVMessWSRoutingOutbounds
-        elif [[ "${configMethod}" == "2" ]]; then
-            setVMessWSRoutingOutbounds
-        fi
-        ;;
-    3)
-        setShadowsocksRoutingOutbounds
-        ;;
-    4)
-        socks5Routing
-        ;;
-    5)
-        echoContent yellow "请输入自定义出站标签:"
-        read -r -p "出站标签:" outboundTag
-        
-        if [[ -n "${outboundTag}" ]]; then
-            echoContent yellow "录入示例:netflix,openai\n"
-            read -r -p "请按照上面示例录入域名:" domainList
-            
-            if [[ -n "${domainList}" ]]; then
-                addInstallRouting "${outboundTag}" outboundTag "${domainList}"
-                reloadCore
-                echoContent green " ---> 添加自定义分流规则成功"
-            fi
-        fi
-        ;;
-    *)
-        echoContent red " ---> 无效选择"
-        ;;
-    esac
-}
-
-# 编辑分流规则
-editRoutingRule() {
-    echoContent skyBlue "\n===================== 编辑分流规则 =====================\n"
-    
-    if [[ -f "${configPath}09_routing.json" ]]; then
-        local rules
-        rules=$(jq -r '.routing.rules[]' "${configPath}09_routing.json" 2>/dev/null)
-        
-        if [[ -n "${rules}" ]]; then
-            echoContent yellow "请选择要编辑的规则:"
-            local index=1
-            local ruleArray=()
-            
-            echo "${rules}" | jq -c . | while read -r rule; do
-                local outboundTag=$(echo "${rule}" | jq -r '.outboundTag')
-                local domains=$(echo "${rule}" | jq -r '.domain[]?' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
-                
-                echoContent yellow "[${index}] 出站标签: ${outboundTag}"
-                if [[ -n "${domains}" ]]; then
-                    echoContent green "    域名: ${domains}"
-                fi
-                echo
-                ((index++))
-            done
-            
-            read -r -p "请输入要编辑的规则编号:" ruleIndex
-            
-            echoContent yellow "请选择编辑操作:"
-            echoContent yellow "1. 添加域名"
-            echoContent yellow "2. 删除域名"
-            echoContent yellow "3. 替换域名"
-            read -r -p "请选择:" editAction
-            
-            # 这里需要实现具体的编辑逻辑
-            echoContent yellow " ---> 编辑功能开发中"
-        else
-            echoContent yellow " ---> 未找到任何分流规则"
-        fi
-    else
-        echoContent yellow " ---> 未找到路由配置文件"
-    fi
-}
-
-# 删除分流规则
-deleteRoutingRule() {
-    echoContent skyBlue "\n===================== 删除分流规则 =====================\n"
-    
-    if [[ -f "${configPath}09_routing.json" ]]; then
-        local rules
-        rules=$(jq -r '.routing.rules[]' "${configPath}09_routing.json" 2>/dev/null)
-        
-        if [[ -n "${rules}" ]]; then
-            echoContent yellow "请选择要删除的规则:"
-            local index=1
-            
-            echo "${rules}" | jq -c . | while read -r rule; do
-                local outboundTag=$(echo "${rule}" | jq -r '.outboundTag')
-                local domains=$(echo "${rule}" | jq -r '.domain[]?' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
-                
-                echoContent yellow "[${index}] 出站标签: ${outboundTag}"
-                if [[ -n "${domains}" ]]; then
-                    echoContent green "    域名: ${domains}"
-                fi
-                echo
-                ((index++))
-            done
-            
-            read -r -p "请输入要删除的规则编号:" ruleIndex
-            
-            echoContent red "确认删除此规则吗？(y/n)"
-            read -r -p "确认:" confirm
-            
-            if [[ "${confirm}" == "y" || "${confirm}" == "Y" ]]; then
-                # 这里需要实现具体的删除逻辑
-                echoContent yellow " ---> 删除功能开发中"
-            fi
-        else
-            echoContent yellow " ---> 未找到任何分流规则"
-        fi
-    else
-        echoContent yellow " ---> 未找到路由配置文件"
-    fi
-}
-
-# 批量管理分流规则
-batchRoutingManagement() {
-    echoContent skyBlue "\n===================== 批量管理分流规则 =====================\n"
-    
-    echoContent yellow "请选择批量操作:"
-    echoContent yellow "1. 批量添加域名到现有规则"
-    echoContent yellow "2. 批量删除域名"
-    echoContent yellow "3. 导出分流规则"
-    echoContent yellow "4. 导入分流规则"
-    read -r -p "请选择:" batchAction
-    
-    case ${batchAction} in
-    1)
-        echoContent yellow " ---> 批量添加功能开发中"
-        ;;
-    2)
-        echoContent yellow " ---> 批量删除功能开发中"
-        ;;
-    3)
-        echoContent yellow " ---> 导出功能开发中"
-        ;;
-    4)
-        echoContent yellow " ---> 导入功能开发中"
-        ;;
-    *)
-        echoContent red " ---> 无效选择"
-        ;;
-    esac
-}
-
-# 查看指定协议的所有出站配置
-showAllOutboundsByProtocol() {
-    local protocol=$1
-    local protocolName=$2
-    
-    echoContent skyBlue "\n===================== ${protocolName} 出站配置 =====================\n"
-    
-    # 查找所有匹配的出站配置文件
-    local outboundFiles=$(find /etc/v2ray-agent/xray/conf -name "*${protocol}*.json" 2>/dev/null)
-    
-    if [[ -n "${outboundFiles}" ]]; then
-        local index=1
-        echo "${outboundFiles}" | while read -r file; do
-            local tag=$(basename "${file}" .json)
-            local config=$(jq -r '.outbounds[0]' "${file}" 2>/dev/null)
-            
-            if [[ -n "${config}" ]]; then
-                echoContent yellow "[${index}] 出站标签: ${tag}"
-                
-                # 显示基本配置信息
-                local address=$(echo "${config}" | jq -r '.settings.vnext[0].address // .settings.servers[0].address // "N/A"')
-                local port=$(echo "${config}" | jq -r '.settings.vnext[0].port // .settings.servers[0].port // "N/A"')
-                local network=$(echo "${config}" | jq -r '.streamSettings.network // "N/A"')
-                local security=$(echo "${config}" | jq -r '.streamSettings.security // "N/A"')
-                
-                echoContent green "    地址: ${address}"
-                echoContent green "    端口: ${port}"
-                echoContent green "    网络: ${network}"
-                echoContent green "    安全: ${security}"
-                
-                # 显示分流规则
-                if [[ -f "${configPath}09_routing.json" ]]; then
-                    local routingRules=$(jq ".routing.rules[]|select(.outboundTag==\"${tag}\")" "${configPath}09_routing.json" 2>/dev/null)
-                    if [[ -n "${routingRules}" ]]; then
-                        local domains=$(echo "${routingRules}" | jq -r '.domain[]?' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
-                        if [[ -n "${domains}" ]]; then
-                            echoContent blue "    分流域名: ${domains}"
-                        fi
-                    fi
-                fi
-                echo
-                ((index++))
-            fi
-        done
-    else
-        echoContent yellow " ---> 未找到 ${protocolName} 出站配置"
-    fi
-}
-
-# 删除指定的出站配置
-deleteSpecificOutbound() {
-    local protocol=$1
-    local protocolName=$2
-    
-    echoContent skyBlue "\n===================== 删除 ${protocolName} 出站配置 =====================\n"
-    
-    # 查找所有匹配的出站配置文件
-    local outboundFiles=$(find /etc/v2ray-agent/xray/conf -name "*${protocol}*.json" 2>/dev/null)
-    
-    if [[ -n "${outboundFiles}" ]]; then
-        local index=1
-        local fileArray=()
-        
-        echo "${outboundFiles}" | while read -r file; do
-            local tag=$(basename "${file}" .json)
-            local config=$(jq -r '.outbounds[0]' "${file}" 2>/dev/null)
-            
-            if [[ -n "${config}" ]]; then
-                local address=$(echo "${config}" | jq -r '.settings.vnext[0].address // .settings.servers[0].address // "N/A"')
-                local port=$(echo "${config}" | jq -r '.settings.vnext[0].port // .settings.servers[0].port // "N/A"')
-                
-                echoContent yellow "[${index}] ${tag} (${address}:${port})"
-                fileArray+=("${file}")
-                ((index++))
-            fi
-        done
-        
-        echoContent yellow "\n请选择要删除的出站配置:"
-        read -r -p "请输入编号 (0=取消):" deleteIndex
-        
-        if [[ "${deleteIndex}" == "0" ]]; then
-            return
-        fi
-        
-        # 验证输入
-        if [[ "${deleteIndex}" =~ ^[0-9]+$ ]] && [[ "${deleteIndex}" -gt 0 ]] && [[ "${deleteIndex}" -le "${#fileArray[@]}" ]]; then
-            local selectedFile="${fileArray[$((deleteIndex-1))]}"
-            local tag=$(basename "${selectedFile}" .json)
-            
-            echoContent red "确认删除出站配置 ${tag} 吗？(y/n)"
-            read -r -p "确认:" confirm
-            
-            if [[ "${confirm}" == "y" || "${confirm}" == "Y" ]]; then
-                # 删除出站配置文件
-                rm -f "${selectedFile}"
-                
-                # 删除对应的路由规则
-                if [[ -f "${configPath}09_routing.json" ]]; then
-                    local routing=$(jq -r "del(.routing.rules[] | select(.outboundTag == \"${tag}\"))" "${configPath}09_routing.json")
-                    echo "${routing}" | jq . >"${configPath}09_routing.json"
-                fi
-                
-                reloadCore
-                echoContent green " ---> 删除出站配置 ${tag} 成功"
-            else
-                echoContent yellow " ---> 取消删除操作"
-            fi
-        else
-            echoContent red " ---> 无效的编号"
-        fi
-    else
-        echoContent yellow " ---> 未找到 ${protocolName} 出站配置"
-    fi
-}
-
-# VLESS 分流
-vlessRouting() {
-    echoContent skyBlue "\n功能 1/${totalProgress} : VLESS 分流"
+# VMess+WS+TLS 分流
+vmessWSRouting() {
+    echoContent skyBlue "\n功能 1/${totalProgress} : VMess+WS+TLS 分流"
     echoContent red "\n=============================================================="
     echoContent yellow "# 注意事项"
     echoContent yellow "# 使用教程：https://www.v2ray-agent.com/archives/1683226921000 \n"
 
     echoContent yellow "1.添加出站"
-    echoContent yellow "2.查看所有VLESS出站"
-    echoContent yellow "3.添加分流规则"
-    echoContent yellow "4.删除指定出站"
-    echoContent yellow "5.卸载所有VLESS出站"
+    echoContent yellow "2.卸载"
     read -r -p "请选择:" selectType
 
     case ${selectType} in
     1)
-        setVLESSWSRoutingOutbounds
+        setVMessWSRoutingOutbounds
         ;;
     2)
-        showAllOutboundsByProtocol "VLESS" "VLESS"
-        vlessRouting
-        ;;
-    3)
-        addVLESSRoutingRules
-        ;;
-    4)
-        deleteSpecificOutbound "VLESS" "VLESS"
-        vlessRouting
-        ;;
-    5)
-        removeVLESSWSRouting
-        ;;
-    esac
-}
-
-# VMess 分流
-vmessRouting() {
-    echoContent skyBlue "\n功能 1/${totalProgress} : VMess 分流"
-    echoContent red "\n=============================================================="
-    echoContent yellow "# 注意事项"
-    echoContent yellow "# 使用教程：https://www.v2ray-agent.com/archives/1683226921000 \n"
-
-    echoContent yellow "1.添加出站"
-    echoContent yellow "2.查看所有VMess出站"
-    echoContent yellow "3.添加分流规则"
-    echoContent yellow "4.删除指定出站"
-    echoContent yellow "5.卸载所有VMess出站"
-    read -r -p "请选择:" selectType
-
-    case ${selectType} in
-    1)
-        setVMessRoutingOutbounds
-        ;;
-    2)
-        showAllOutboundsByProtocol "VMess" "VMess"
-        vmessRouting
-        ;;
-    3)
-        addVMessRoutingRules
-        ;;
-    4)
-        deleteSpecificOutbound "VMess" "VMess"
-        vmessRouting
-        ;;
-    5)
         removeVMessWSRouting
-        ;;
-    esac
-}
-
-# Shadowsocks 分流
-shadowsocksRouting() {
-    echoContent skyBlue "\n功能 1/${totalProgress} : Shadowsocks 分流"
-    echoContent red "\n=============================================================="
-    echoContent yellow "# 注意事项"
-    echoContent yellow "# 使用教程：https://www.v2ray-agent.com/archives/1683226921000 \n"
-
-    echoContent yellow "1.添加出站"
-    echoContent yellow "2.查看所有Shadowsocks出站"
-    echoContent yellow "3.添加分流规则"
-    echoContent yellow "4.删除指定出站"
-    echoContent yellow "5.卸载所有Shadowsocks出站"
-    read -r -p "请选择:" selectType
-
-    case ${selectType} in
-    1)
-        setShadowsocksRoutingOutbounds
-        ;;
-    2)
-        showAllOutboundsByProtocol "Shadowsocks" "Shadowsocks"
-        shadowsocksRouting
-        ;;
-    3)
-        addShadowsocksRoutingRules
-        ;;
-    4)
-        deleteSpecificOutbound "Shadowsocks" "Shadowsocks"
-        shadowsocksRouting
-        ;;
-    5)
-        removeShadowsocksRouting
         ;;
     esac
 }
@@ -7860,35 +7255,16 @@ showSingBoxRoutingRules() {
 
 # xray内核分流规则
 showXrayRoutingRules() {
-    local tag=$1
     if [[ "${coreInstallType}" == "1" ]]; then
         if [[ -f "${configPath}09_routing.json" ]]; then
-            local rules
-            rules=$(jq ".routing.rules[]|select(.outboundTag==\"${tag}\")" "${configPath}09_routing.json" 2>/dev/null)
-            
-            if [[ -n "${rules}" ]]; then
-                echoContent yellow "\n---> 已配置的分流规则："
-                echoContent skyBlue "${rules}"
-                echo
-                
-                # 显示域名列表
-                local domains
-                domains=$(echo "${rules}" | jq -r '.domain[]' 2>/dev/null)
-                if [[ -n "${domains}" ]]; then
-                    echoContent green "分流域名列表："
-                    echo "${domains}" | while read -r domain; do
-                        echoContent white "  - ${domain}"
-                    done
-                fi
-            else
-                echoContent yellow "\n---> 未找到 ${tag} 的分流规则"
-            fi
-        else
-            echoContent yellow "\n---> 未找到路由配置文件"
-        fi
-        
-        # 特殊处理socks5的配置显示
-        if [[ "$1" == "socks5_outbound" && -f "${configPath}socks5_outbound.json" ]]; then
+            jq ".routing.rules[]|select(.outboundTag==\"$1\")" "${configPath}09_routing.json"
+
+            echoContent yellow "\n已安装 xray-core socks5全局出站分流"
+            echoContent yellow "\n出站分流配置："
+            echoContent skyBlue "$(jq .outbounds[0].settings.servers[0] ${configPath}socks5_outbound.json)"
+
+        elif [[ "$1" == "socks5_outbound" && -f "${configPath}socks5_outbound.json" ]]; then
+            echoContent yellow "\n已安装 xray-core socks5全局出站分流"
             echoContent yellow "\n出站分流配置："
             echoContent skyBlue "$(jq .outbounds[0].settings.servers[0] ${configPath}socks5_outbound.json)"
         fi
@@ -8163,7 +7539,7 @@ setSocks5OutboundRouting() {
         unInstallRouting "socks5_outbound" "outboundTag"
         local domainRules=[]
         while read -r line; do
-            if echo "${routingRule}" | grep -qF "${line}"; then
+            if echo "${routingRule}" | grep -q "${line}"; then
                 echoContent yellow " ---> ${line}已存在，跳过"
             else
                 local geositeStatus
@@ -8180,7 +7556,6 @@ setSocks5OutboundRouting() {
             cat <<EOF >${configPath}09_routing.json
 {
     "routing":{
-        "domainStrategy": "AsIs",
         "rules": []
   }
 }
@@ -8189,419 +7564,6 @@ EOF
         routing=$(jq -r ".routing.rules += [{\"type\": \"field\",\"domain\": ${domainRules},\"outboundTag\": \"socks5_outbound\"}]" ${configPath}09_routing.json)
         echo "${routing}" | jq . >${configPath}09_routing.json
     fi
-}
-
-# 解析VLESS连接
-parseVLESSConnection() {
-    local vlessUrl=$1
-    
-    # 检查是否为VLESS协议
-    if [[ ! "${vlessUrl}" =~ ^vless:// ]]; then
-        echoContent red " ---> 不是有效的VLESS连接格式"
-        return 1
-    fi
-    
-    # 移除vless://前缀
-    local urlWithoutProtocol="${vlessUrl#vless://}"
-    
-    # 提取UUID（@符号前的部分）
-    local uuid="${urlWithoutProtocol%%@*}"
-    
-    # 提取剩余部分（@符号后的部分）
-    local remaining="${urlWithoutProtocol#*@}"
-    
-    # 提取地址和端口（:符号前是地址，后是端口）
-    local address="${remaining%%:*}"
-    local portAndParams="${remaining#*:}"
-    
-    # 提取端口（?符号前是端口）
-    local port="${portAndParams%%\?*}"
-    
-    # 提取参数部分
-    local params="${portAndParams#*\?}"
-    
-    # 解析参数
-    local path=""
-    local host=""
-    local sni=""
-    local security=""
-    local network=""
-    local flow=""
-    local pbk=""
-    local sid=""
-    local serviceName=""
-    local alpn=""
-    
-    # 将参数按&分割并解析
-    IFS='&' read -ra paramArray <<< "$params"
-    for param in "${paramArray[@]}"; do
-        local key="${param%%=*}"
-        local value="${param#*=}"
-        
-        case "$key" in
-            "path")
-                path="$value"
-                ;;
-            "host")
-                host="$value"
-                ;;
-            "sni")
-                sni="$value"
-                ;;
-            "security")
-                security="$value"
-                ;;
-            "type")
-                network="$value"
-                ;;
-            "flow")
-                flow="$value"
-                ;;
-            "pbk")
-                pbk="$value"
-                ;;
-            "sid")
-                sid="$value"
-                ;;
-            "serviceName")
-                serviceName="$value"
-                ;;
-            "alpn")
-                alpn="$value"
-                ;;
-        esac
-    done
-    
-    # 设置全局变量
-    setVLESSWSTLSAddress="$address"
-    setVLESSWSTLSPort="$port"
-    setVLESSWSTLSUUID="$uuid"
-    setVLESSWSTLSPath="$path"
-    setVLESSWSTLSHost="$host"
-    setVLESSWSTLSSecurity="$security"
-    setVLESSWSTLSNetwork="$network"
-    setVLESSWSTLSFlow="$flow"
-    setVLESSWSTLSPbk="$pbk"
-    setVLESSWSTLSSid="$sid"
-    setVLESSWSTLSServiceName="$serviceName"
-    setVLESSWSTLSAlpn="$alpn"
-    
-    # 如果没有host参数，使用address作为host
-    if [[ -z "$host" ]]; then
-        host="$address"
-    fi
-    
-    # 确定协议类型
-    local protocolType=""
-    case "$network" in
-        "ws")
-            protocolType="VLESS+WS+TLS"
-            ;;
-        "tcp")
-            if [[ "$security" == "reality" ]]; then
-                protocolType="VLESS+Reality+Vision"
-            else
-                protocolType="VLESS+TCP+TLS"
-            fi
-            ;;
-        "grpc")
-            if [[ "$security" == "reality" ]]; then
-                protocolType="VLESS+Reality+gRPC"
-            else
-                protocolType="VLESS+gRPC+TLS"
-            fi
-            ;;
-        "xhttp")
-            protocolType="VLESS+XHTTP+TLS"
-            ;;
-        *)
-            protocolType="VLESS+WS+TLS"  # 默认类型
-            ;;
-    esac
-    
-    echoContent green " ---> VLESS连接解析成功:"
-    echoContent green "     协议类型: $protocolType"
-    echoContent green "     地址: $setVLESSWSTLSAddress"
-    echoContent green "     端口: $setVLESSWSTLSPort"
-    echoContent green "     UUID: $setVLESSWSTLSUUID"
-    echoContent green "     路径: $setVLESSWSTLSPath"
-    echoContent green "     主机: $host"
-    echoContent green "     安全: $security"
-    echoContent green "     网络: $network"
-    
-    # 显示额外参数
-    if [[ -n "$flow" ]]; then
-        echoContent green "     Flow: $flow"
-    fi
-    if [[ -n "$pbk" ]]; then
-        echoContent green "     PublicKey: $pbk"
-    fi
-    if [[ -n "$sid" ]]; then
-        echoContent green "     ShortId: $sid"
-    fi
-    if [[ -n "$serviceName" ]]; then
-        echoContent green "     ServiceName: $serviceName"
-    fi
-    if [[ -n "$alpn" ]]; then
-        echoContent green "     ALPN: $alpn"
-    fi
-    
-    return 0
-}
-
-# 设置VLESS+WS+TLS【仅出站】
-setVLESSWSRoutingOutbounds() {
-    echoContent skyBlue "\n请选择配置方式:"
-    echoContent yellow "1. 手动输入参数"
-    echoContent yellow "2. 导入VLESS连接"
-    read -r -p "请选择 (1-2):" configMethod
-    
-    case ${configMethod} in
-    1)
-        # 手动输入模式（保持原有逻辑）
-        read -r -p "请输入VLESS+WS+TLS的地址:" setVLESSWSTLSAddress
-        echoContent red "=============================================================="
-        echoContent yellow "录入示例:netflix,openai\n"
-        read -r -p "请按照上面示例录入域名:" domainList
-
-        if [[ -z ${domainList} ]]; then
-            echoContent red " ---> 域名不可为空"
-            setVLESSWSRoutingOutbounds
-        fi
-
-        if [[ -n "${setVLESSWSTLSAddress}" ]]; then
-            removeXrayOutbound VLESS-out
-
-            echo
-            read -r -p "请输入VLESS+WS+TLS的端口:" setVLESSWSTLSPort
-            echo
-            if [[ -z "${setVLESSWSTLSPort}" ]]; then
-                echoContent red " ---> 端口不可为空"
-            fi
-
-            read -r -p "请输入VLESS+WS+TLS的UUID:" setVLESSWSTLSUUID
-            echo
-            if [[ -z "${setVLESSWSTLSUUID}" ]]; then
-                echoContent red " ---> UUID不可为空"
-            fi
-
-            read -r -p "请输入VLESS+WS+TLS的Path路径:" setVLESSWSTLSPath
-            echo
-            if [[ -z "${setVLESSWSTLSPath}" ]]; then
-                echoContent red " ---> 路径不可为空"
-            elif ! echo "${setVLESSWSTLSPath}" | grep -q "/"; then
-                setVLESSWSTLSPath="/${setVLESSWSTLSPath}"
-            fi
-            addXrayOutbound "VLESS-out"
-            addInstallRouting VLESS-out outboundTag "${domainList}"
-            reloadCore
-            echoContent green " ---> 添加VLESS分流成功"
-            exit 0
-        fi
-        echoContent red " ---> 地址不可为空"
-        setVLESSWSRoutingOutbounds
-        ;;
-    2)
-        # 导入连接模式
-        echoContent red "=============================================================="
-        echoContent yellow "请输入VLESS连接（支持vless://格式）\n"
-        echoContent yellow "示例: vless://uuid@domain:port?encryption=none&security=tls&type=ws&host=domain&path=/path#remark"
-        read -r -p "请输入VLESS连接:" vlessConnection
-        
-        if [[ -z "${vlessConnection}" ]]; then
-            echoContent red " ---> VLESS连接不可为空"
-            setVLESSWSRoutingOutbounds
-            return
-        fi
-        
-        # 解析VLESS连接
-        if ! parseVLESSConnection "${vlessConnection}"; then
-            setVLESSWSRoutingOutbounds
-            return
-        fi
-        
-        echoContent red "=============================================================="
-        echoContent yellow "录入示例:netflix,openai\n"
-        read -r -p "请按照上面示例录入域名:" domainList
-
-        if [[ -z ${domainList} ]]; then
-            echoContent red " ---> 域名不可为空"
-            setVLESSWSRoutingOutbounds
-            return
-        fi
-        
-        # 验证必要参数
-        if [[ -z "${setVLESSWSTLSAddress}" || -z "${setVLESSWSTLSPort}" || -z "${setVLESSWSTLSUUID}" || -z "${setVLESSWSTLSPath}" ]]; then
-            echoContent red " ---> VLESS连接参数不完整，请检查连接格式"
-            setVLESSWSRoutingOutbounds
-            return
-        fi
-        
-        # 确保路径以/开头
-        if ! echo "${setVLESSWSTLSPath}" | grep -q "/"; then
-            setVLESSWSTLSPath="/${setVLESSWSTLSPath}"
-        fi
-        
-        removeXrayOutbound VLESS-out
-        addXrayOutbound "VLESS-out"
-        addInstallRouting VLESS-out outboundTag "${domainList}"
-        reloadCore
-        echoContent green " ---> 添加VLESS分流成功"
-        exit 0
-        ;;
-    *)
-        echoContent red " ---> 无效选择"
-        setVLESSWSRoutingOutbounds
-        ;;
-    esac
-}
-
-# 移除VLESS+WS+TLS分流
-removeVLESSWSRouting() {
-
-    removeXrayOutbound VLESS-out
-    unInstallRouting VLESS-out outboundTag
-
-    reloadCore
-    echoContent green " ---> 卸载成功"
-}
-
-# 添加VLESS分流规则
-addVLESSRoutingRules() {
-    if [[ ! -f "/etc/v2ray-agent/xray/conf/VLESS-out.json" ]]; then
-        echoContent red " ---> 未安装VLESS出站，请先安装"
-        vlessRouting
-        return
-    fi
-    
-    echoContent red "=============================================================="
-    echoContent yellow "录入示例:netflix,openai,youtube\n"
-    read -r -p "请按照上面示例录入要添加的域名:" domainList
-
-    if [[ -z "${domainList}" ]]; then
-        echoContent red " ---> 域名不可为空"
-        addVLESSRoutingRules
-        return
-    fi
-
-    addInstallRouting VLESS-out outboundTag "${domainList}"
-    reloadCore
-    echoContent green " ---> 添加VLESS分流规则成功"
-    vlessRouting
-}
-
-# 解析VMess连接
-parseVMessConnection() {
-    local vmessUrl=$1
-    
-    # 检查是否为VMess协议
-    if [[ ! "${vmessUrl}" =~ ^vmess:// ]]; then
-        echoContent red " ---> 不是有效的VMess连接格式"
-        return 1
-    fi
-    
-    # 移除vmess://前缀
-    local urlWithoutProtocol="${vmessUrl#vmess://}"
-    
-    # VMess连接通常是base64编码的JSON，需要解码
-    # 这里简化处理，假设用户输入的是解码后的参数
-    echoContent yellow " ---> VMess连接解析功能开发中，请使用手动输入模式"
-    return 1
-}
-
-# 设置VMess【仅出站】
-setVMessRoutingOutbounds() {
-    echoContent skyBlue "\n请选择配置方式:"
-    echoContent yellow "1. 手动输入参数"
-    echoContent yellow "2. 导入VMess连接"
-    read -r -p "请选择 (1-2):" configMethod
-    
-    case ${configMethod} in
-    1)
-        # 手动输入模式（保持原有逻辑）
-        read -r -p "请输入VMess+WS+TLS的地址:" setVMessWSTLSAddress
-        echoContent red "=============================================================="
-        echoContent yellow "录入示例:netflix,openai\n"
-        read -r -p "请按照上面示例录入域名:" domainList
-
-        if [[ -z ${domainList} ]]; then
-            echoContent red " ---> 域名不可为空"
-            setVMessRoutingOutbounds
-        fi
-
-        if [[ -n "${setVMessWSTLSAddress}" ]]; then
-            removeXrayOutbound VMess-out
-
-            echo
-            read -r -p "请输入VMess+WS+TLS的端口:" setVMessWSTLSPort
-            echo
-            if [[ -z "${setVMessWSTLSPort}" ]]; then
-                echoContent red " ---> 端口不可为空"
-            fi
-
-            read -r -p "请输入VMess+WS+TLS的UUID:" setVMessWSTLSUUID
-            echo
-            if [[ -z "${setVMessWSTLSUUID}" ]]; then
-                echoContent red " ---> UUID不可为空"
-            fi
-
-            read -r -p "请输入VMess+WS+TLS的Path路径:" setVMessWSTLSPath
-            echo
-            if [[ -z "${setVMessWSTLSPath}" ]]; then
-                echoContent red " ---> 路径不可为空"
-            elif ! echo "${setVMessWSTLSPath}" | grep -q "/"; then
-                setVMessWSTLSPath="/${setVMessWSTLSPath}"
-            fi
-            addXrayOutbound "VMess-out"
-            addInstallRouting VMess-out outboundTag "${domainList}"
-            reloadCore
-            echoContent green " ---> 添加VMess分流成功"
-            exit 0
-        fi
-        echoContent red " ---> 地址不可为空"
-        setVMessRoutingOutbounds
-        ;;
-    2)
-        # 导入连接模式
-        echoContent red "=============================================================="
-        echoContent yellow "请输入VMess连接（支持vmess://格式）\n"
-        echoContent yellow "示例: vmess://base64-encoded-json"
-        read -r -p "请输入VMess连接:" vmessConnection
-        
-        if [[ -z "${vmessConnection}" ]]; then
-            echoContent red " ---> VMess连接不可为空"
-            setVMessRoutingOutbounds
-            return
-        fi
-        
-        # 解析VMess连接
-        if ! parseVMessConnection "${vmessConnection}"; then
-            setVMessRoutingOutbounds
-            return
-        fi
-        
-        echoContent red "=============================================================="
-        echoContent yellow "录入示例:netflix,openai\n"
-        read -r -p "请按照上面示例录入域名:" domainList
-
-        if [[ -z ${domainList} ]]; then
-            echoContent red " ---> 域名不可为空"
-            setVMessRoutingOutbounds
-            return
-        fi
-        
-        removeXrayOutbound VMess-out
-        addXrayOutbound "VMess-out"
-        addInstallRouting VMess-out outboundTag "${domainList}"
-        reloadCore
-        echoContent green " ---> 添加VMess分流成功"
-        exit 0
-        ;;
-    *)
-        echoContent red " ---> 无效选择"
-        setVMessRoutingOutbounds
-        ;;
-    esac
 }
 
 # 设置VMess+WS+TLS【仅出站】
@@ -8659,130 +7621,641 @@ removeVMessWSRouting() {
     echoContent green " ---> 卸载成功"
 }
 
-# 添加VMess分流规则
-addVMessRoutingRules() {
-    if [[ ! -f "/etc/v2ray-agent/xray/conf/VMess-out.json" ]]; then
-        echoContent red " ---> 未安装VMess出站，请先安装"
-        vmessRouting
-        return
-    fi
+# 解析Shadowsocks链接
+parseShadowsocksUrl() {
+    local ssUrl=$1
+    local ssData=""
     
-    echoContent red "=============================================================="
-    echoContent yellow "录入示例:netflix,openai,youtube\n"
-    read -r -p "请按照上面示例录入要添加的域名:" domainList
-
-    if [[ -z "${domainList}" ]]; then
-        echoContent red " ---> 域名不可为空"
-        addVMessRoutingRules
-        return
+    # 移除ss://前缀
+    ssUrl=${ssUrl#ss://}
+    
+    # 解析Base64编码的部分
+    if echo "${ssUrl}" | grep -q "@"; then
+        # 新格式：method:password@server:port
+        local base64Part=$(echo "${ssUrl}" | awk -F "@" '{print $1}')
+        local serverPart=$(echo "${ssUrl}" | awk -F "@" '{print $2}' | awk -F "#" '{print $1}')
+        
+        # Base64解码
+        ssData=$(echo "${base64Part}" | base64 -d 2>/dev/null)
+        if [[ -z "${ssData}" ]]; then
+            # 尝试URL-safe Base64
+            ssData=$(echo "${base64Part}" | tr '_-' '/+' | base64 -d 2>/dev/null)
+        fi
+        
+        # 解析method和password
+        ssMethod=$(echo "${ssData}" | awk -F ":" '{print $1}')
+        ssPassword=$(echo "${ssData}" | awk -F ":" '{print $2}')
+        
+        # 解析server和port
+        ssServer=$(echo "${serverPart}" | awk -F ":" '{print $1}')
+        ssPort=$(echo "${serverPart}" | awk -F ":" '{print $2}')
+    else
+        # 旧格式：完全Base64编码
+        ssData=$(echo "${ssUrl}" | awk -F "#" '{print $1}' | base64 -d 2>/dev/null)
+        if [[ -z "${ssData}" ]]; then
+            # 尝试URL-safe Base64
+            ssData=$(echo "${ssUrl}" | awk -F "#" '{print $1}' | tr '_-' '/+' | base64 -d 2>/dev/null)
+        fi
+        
+        # 解析所有部分
+        ssMethod=$(echo "${ssData}" | awk -F ":" '{print $1}')
+        local tempData=$(echo "${ssData}" | awk -F ":" '{print $2}')
+        ssPassword=$(echo "${tempData}" | awk -F "@" '{print $1}')
+        ssServer=$(echo "${tempData}" | awk -F "@" '{print $2}')
+        ssPort=$(echo "${ssData}" | awk -F ":" '{print $3}')
     fi
-
-    addInstallRouting VMess-out outboundTag "${domainList}"
-    reloadCore
-    echoContent green " ---> 添加VMess分流规则成功"
-    vmessRouting
 }
 
-# 设置Shadowsocks【仅出站】
-setShadowsocksRoutingOutbounds() {
-    read -r -p "请输入Shadowsocks的地址:" setShadowsocksAddress
-    echoContent red "=============================================================="
-    echoContent yellow "录入示例:netflix,openai\n"
-    read -r -p "请按照上面示例录入域名:" domainList
+# 解析VLESS链接
+parseVlessUrl() {
+    local vlessUrl=$1
+    
+    # 移除vless://前缀
+    vlessUrl=${vlessUrl#vless://}
+    
+    # 解析UUID
+    vlessUUID=$(echo "${vlessUrl}" | awk -F "@" '{print $1}')
+    
+    # 解析server:port和参数
+    local serverPart=$(echo "${vlessUrl}" | awk -F "@" '{print $2}' | awk -F "?" '{print $1}')
+    vlessServer=$(echo "${serverPart}" | awk -F ":" '{print $1}')
+    vlessPort=$(echo "${serverPart}" | awk -F ":" '{print $2}')
+    
+    # 解析参数
+    local paramsPart=$(echo "${vlessUrl}" | awk -F "?" '{print $2}' | awk -F "#" '{print $1}')
+    
+    # 解析各个参数 (使用sed兼容方式)
+    vlessSecurity=$(echo "${paramsPart}" | sed -n 's/.*security=\([^&]*\).*/\1/p')
+    vlessType=$(echo "${paramsPart}" | sed -n 's/.*type=\([^&]*\).*/\1/p')
+    vlessPath=$(echo "${paramsPart}" | sed -n 's/.*path=\([^&]*\).*/\1/p' | sed 's/%2F/\//g')
+    vlessSNI=$(echo "${paramsPart}" | sed -n 's/.*sni=\([^&]*\).*/\1/p')
+    vlessHost=$(echo "${paramsPart}" | sed -n 's/.*host=\([^&]*\).*/\1/p')
+    vlessAlpn=$(echo "${paramsPart}" | sed -n 's/.*alpn=\([^&]*\).*/\1/p')
+    vlessFlow=$(echo "${paramsPart}" | sed -n 's/.*flow=\([^&]*\).*/\1/p')
+    
+    # 设置默认值
+    [[ -z "${vlessSecurity}" ]] && vlessSecurity="none"
+    [[ -z "${vlessType}" ]] && vlessType="tcp"
+}
 
-    if [[ -z ${domainList} ]]; then
-        echoContent red " ---> 域名不可为空"
-        setShadowsocksRoutingOutbounds
-    fi
-
-    if [[ -n "${setShadowsocksAddress}" ]]; then
-        removeXrayOutbound Shadowsocks-out
-
-        echo
-        read -r -p "请输入Shadowsocks的端口:" setShadowsocksPort
-        echo
-        if [[ -z "${setShadowsocksPort}" ]]; then
-            echoContent red " ---> 端口不可为空"
-        fi
-
-        read -r -p "请输入Shadowsocks的密码:" setShadowsocksPassword
-        echo
-        if [[ -z "${setShadowsocksPassword}" ]]; then
-            echoContent red " ---> 密码不可为空"
-        fi
-
-        echoContent skyBlue "\n请选择加密方式"
-        echoContent red "=============================================================="
-        echoContent yellow "1.aes-256-gcm (推荐)"
-        echoContent yellow "2.chacha20-ietf-poly1305"
-        echoContent yellow "3.aes-128-gcm"
-        echoContent yellow "4.chacha20-ietf"
-        echoContent red "=============================================================="
-        read -r -p "请选择加密方式[默认:aes-256-gcm]:" selectShadowsocksMethod
-        
-        case ${selectShadowsocksMethod} in
-        1)
-            setShadowsocksMethod="aes-256-gcm"
-            ;;
-        2)
-            setShadowsocksMethod="chacha20-ietf-poly1305"
-            ;;
-        3)
-            setShadowsocksMethod="aes-128-gcm"
-            ;;
-        4)
-            setShadowsocksMethod="chacha20-ietf"
-            ;;
-        *)
-            setShadowsocksMethod="aes-256-gcm"
-            ;;
-        esac
-
-        echo
-        echoContent green " ---> 加密方式: ${setShadowsocksMethod}"
-        
-        addXrayOutbound "Shadowsocks-out"
-        addInstallRouting Shadowsocks-out outboundTag "${domainList}"
-        reloadCore
-        echoContent green " ---> 添加Shadowsocks分流成功"
+# Shadowsocks分流
+shadowsocksRouting() {
+    if [[ -z "${coreInstallType}" ]]; then
+        echoContent red " ---> 未安装任意协议，请使用 1.安装 或者 2.任意组合安装 进行安装后使用"
         exit 0
     fi
-    echoContent red " ---> 地址不可为空"
-    setShadowsocksRoutingOutbounds
+    echoContent skyBlue "\n功能 1/${totalProgress} : Shadowsocks分流"
+    echoContent red "\n=============================================================="
+    echoContent yellow "# 注意事项"
+    echoContent yellow "# 支持导入SS链接，也支持手动配置"
+    echoContent yellow "# 使用教程：https://www.v2ray-agent.com/archives/1683226921000 \n"
+
+    echoContent yellow "1.添加Shadowsocks出站"
+    echoContent yellow "2.查看分流规则"
+    echoContent yellow "3.添加分流规则"
+    echoContent yellow "4.卸载"
+    read -r -p "请选择:" selectType
+
+    case ${selectType} in
+    1)
+        setShadowsocksOutbound
+        setShadowsocksOutboundRouting
+        reloadCore
+        echoContent green " ---> 添加成功"
+        ;;
+    2)
+        showShadowsocksRoutingRules
+        ;;
+    3)
+        setShadowsocksOutboundRouting addRules
+        reloadCore
+        echoContent green " ---> 添加规则成功"
+        ;;
+    4)
+        removeShadowsocksRouting
+        ;;
+    esac
+}
+
+# 设置Shadowsocks出站
+setShadowsocksOutbound() {
+    echoContent yellow "\n==================== 配置 Shadowsocks 出站 =====================\n"
+    echoContent yellow "1.导入SS链接"
+    echoContent yellow "2.手动配置"
+    read -r -p "请选择:" configType
+    
+    if [[ "${configType}" == "1" ]]; then
+        # 导入SS链接
+        echo
+        read -r -p "请输入SS分享链接:" ssUrl
+        if [[ -z "${ssUrl}" ]]; then
+            echoContent red " ---> SS链接不可为空"
+            exit 0
+        fi
+        
+        # 解析SS链接
+        parseShadowsocksUrl "${ssUrl}"
+        
+        if [[ -z "${ssServer}" || -z "${ssPort}" || -z "${ssPassword}" || -z "${ssMethod}" ]]; then
+            echoContent red " ---> SS链接解析失败，请检查链接格式"
+            exit 0
+        fi
+        
+        echoContent green " ---> 解析成功"
+        echoContent yellow " 服务器: ${ssServer}"
+        echoContent yellow " 端口: ${ssPort}"
+        echoContent yellow " 加密方式: ${ssMethod}"
+        echoContent yellow " 密码: ${ssPassword}"
+        echo
+    else
+        # 手动配置
+        echo
+        read -r -p "请输入Shadowsocks服务器地址:" ssServer
+        if [[ -z "${ssServer}" ]]; then
+            echoContent red " ---> 服务器地址不可为空"
+            exit 0
+        fi
+        echo
+        read -r -p "请输入Shadowsocks端口:" ssPort
+        if [[ -z "${ssPort}" ]]; then
+            echoContent red " ---> 端口不可为空"
+            exit 0
+        fi
+        echo
+        read -r -p "请输入加密方式 (例如: aes-256-gcm):" ssMethod
+        if [[ -z "${ssMethod}" ]]; then
+            echoContent red " ---> 加密方式不可为空"
+            exit 0
+        fi
+        echo
+        read -r -p "请输入密码:" ssPassword
+        if [[ -z "${ssPassword}" ]]; then
+            echoContent red " ---> 密码不可为空"
+            exit 0
+        fi
+    fi
+    
+    # 生成sing-box配置
+    if [[ -n "${singBoxConfigPath}" ]]; then
+        cat <<EOF >"${singBoxConfigPath}shadowsocks_outbound.json"
+{
+    "outbounds":[
+        {
+            "type": "shadowsocks",
+            "tag": "shadowsocks_outbound",
+            "server": "${ssServer}",
+            "server_port": ${ssPort},
+            "method": "${ssMethod}",
+            "password": "${ssPassword}"
+        }
+    ]
+}
+EOF
+    fi
+    
+    # 生成xray配置
+    if [[ "${coreInstallType}" == "1" ]]; then
+        cat <<EOF >/etc/v2ray-agent/xray/conf/shadowsocks_outbound.json
+{
+    "outbounds": [
+        {
+            "protocol": "shadowsocks",
+            "tag": "shadowsocks_outbound",
+            "settings": {
+                "servers": [
+                    {
+                        "address": "${ssServer}",
+                        "port": ${ssPort},
+                        "method": "${ssMethod}",
+                        "password": "${ssPassword}"
+                    }
+                ]
+            }
+        }
+    ]
+}
+EOF
+    fi
+}
+
+# 设置Shadowsocks出站路由规则
+setShadowsocksOutboundRouting() {
+    if [[ "$1" == "addRules" && ! -f "${singBoxConfigPath}shadowsocks_outbound_route.json" && ! -f "${configPath}09_routing.json" ]]; then
+        echoContent red " ---> 请先添加Shadowsocks出站后再添加分流规则"
+        exit 0
+    fi
+
+    echoContent red "=============================================================="
+    echoContent skyBlue "请输入要分流的域名\n"
+    echoContent yellow "支持Xray-core geosite匹配，支持sing-box1.8+ rule_set匹配\n"
+    echoContent yellow "非增量添加，会替换原有规则\n"
+    echoContent yellow "当输入的规则匹配到geosite或者rule_set后会使用相应的规则\n"
+    echoContent yellow "如无法匹配则，则使用domain精确匹配\n"
+    echoContent yellow "录入示例:netflix,openai,v2ray-agent.com\n"
+    read -r -p "域名:" shadowsocksRoutingDomain
+    if [[ -z "${shadowsocksRoutingDomain}" ]]; then
+        echoContent red " ---> 域名不可为空"
+        exit 0
+    fi
+    
+    # 添加sing-box路由规则
+    addSingBoxRouteRule "shadowsocks_outbound" "${shadowsocksRoutingDomain}" "shadowsocks_outbound_route"
+    addSingBoxOutbound "01_direct_outbound"
+
+    # 添加xray路由规则
+    if [[ "${coreInstallType}" == "1" ]]; then
+        unInstallRouting "shadowsocks_outbound" "outboundTag"
+        local domainRules=[]
+        while read -r line; do
+            local geositeStatus
+            geositeStatus=$(curl -s "https://api.github.com/repos/v2fly/domain-list-community/contents/data/${line}" | jq .message)
+
+            if [[ "${geositeStatus}" == "null" ]]; then
+                domainRules=$(echo "${domainRules}" | jq -r ". += [\"geosite:${line}\"]")
+            else
+                domainRules=$(echo "${domainRules}" | jq -r ". += [\"domain:${line}\"]")
+            fi
+        done < <(echo "${shadowsocksRoutingDomain}" | tr ',' '\n')
+        
+        if [[ ! -f "${configPath}09_routing.json" ]]; then
+            cat <<EOF >${configPath}09_routing.json
+{
+    "routing":{
+        "rules": []
+    }
+}
+EOF
+        fi
+        routing=$(jq -r ".routing.rules += [{\"type\": \"field\",\"domain\": ${domainRules},\"outboundTag\": \"shadowsocks_outbound\"}]" ${configPath}09_routing.json)
+        echo "${routing}" | jq . >${configPath}09_routing.json
+    fi
+}
+
+# 查看Shadowsocks分流规则
+showShadowsocksRoutingRules() {
+    echoContent skyBlue "\n==================== Shadowsocks分流规则 =====================\n"
+    
+    if [[ -f "${singBoxConfigPath}shadowsocks_outbound_route.json" ]]; then
+        echoContent yellow "sing-box路由规则："
+        jq -r '.route.rules[0]' "${singBoxConfigPath}shadowsocks_outbound_route.json"
+    fi
+    
+    if [[ -f "${configPath}09_routing.json" ]]; then
+        echoContent yellow "\nXray路由规则："
+        jq -r '.routing.rules[] | select(.outboundTag=="shadowsocks_outbound")' "${configPath}09_routing.json"
+    fi
+    
+    if [[ ! -f "${singBoxConfigPath}shadowsocks_outbound_route.json" && ! -f "${configPath}09_routing.json" ]]; then
+        echoContent red " ---> 未配置分流规则"
+    fi
 }
 
 # 移除Shadowsocks分流
 removeShadowsocksRouting() {
-
-    removeXrayOutbound Shadowsocks-out
-    unInstallRouting Shadowsocks-out outboundTag
-
-    reloadCore
-    echoContent green " ---> 卸载成功"
+    echoContent yellow "\n==================== 卸载 Shadowsocks分流 =====================\n"
+    echoContent red "确认卸载？会删除所有Shadowsocks分流配置 [y/n]"
+    read -r -p "请选择:" removeStatus
+    
+    if [[ "${removeStatus}" == "y" ]]; then
+        # 移除sing-box配置
+        if [[ -f "${singBoxConfigPath}shadowsocks_outbound.json" ]]; then
+            rm "${singBoxConfigPath}shadowsocks_outbound.json"
+        fi
+        if [[ -f "${singBoxConfigPath}shadowsocks_outbound_route.json" ]]; then
+            rm "${singBoxConfigPath}shadowsocks_outbound_route.json"
+        fi
+        
+        # 移除xray配置
+        if [[ -f "/etc/v2ray-agent/xray/conf/shadowsocks_outbound.json" ]]; then
+            rm "/etc/v2ray-agent/xray/conf/shadowsocks_outbound.json"
+        fi
+        
+        unInstallRouting "shadowsocks_outbound" "outboundTag"
+        
+        reloadCore
+        echoContent green " ---> 卸载成功"
+    else
+        echoContent red " ---> 取消卸载"
+    fi
 }
 
-# 添加Shadowsocks分流规则
-addShadowsocksRoutingRules() {
-    if [[ ! -f "/etc/v2ray-agent/xray/conf/Shadowsocks-out.json" ]]; then
-        echoContent red " ---> 未安装Shadowsocks出站，请先安装"
-        shadowsocksRouting
-        return
+# VLESS分流
+vlessRouting() {
+    if [[ -z "${coreInstallType}" ]]; then
+        echoContent red " ---> 未安装任意协议，请使用 1.安装 或者 2.任意组合安装 进行安装后使用"
+        exit 0
+    fi
+    echoContent skyBlue "\n功能 1/${totalProgress} : VLESS分流"
+    echoContent red "\n=============================================================="
+    echoContent yellow "# 注意事项"
+    echoContent yellow "# 支持导入VLESS链接，也支持手动配置"
+    echoContent yellow "# 使用教程：https://www.v2ray-agent.com/archives/1683226921000 \n"
+
+    echoContent yellow "1.添加VLESS出站"
+    echoContent yellow "2.查看分流规则"
+    echoContent yellow "3.添加分流规则"
+    echoContent yellow "4.卸载"
+    read -r -p "请选择:" selectType
+
+    case ${selectType} in
+    1)
+        setVlessOutbound
+        setVlessOutboundRouting
+        reloadCore
+        echoContent green " ---> 添加成功"
+        ;;
+    2)
+        showVlessRoutingRules
+        ;;
+    3)
+        setVlessOutboundRouting addRules
+        reloadCore
+        echoContent green " ---> 添加规则成功"
+        ;;
+    4)
+        removeVlessRouting
+        ;;
+    esac
+}
+
+# 设置VLESS出站
+setVlessOutbound() {
+    echoContent yellow "\n==================== 配置 VLESS 出站 =====================\n"
+    echoContent yellow "1.导入VLESS链接"
+    echoContent yellow "2.手动配置"
+    read -r -p "请选择:" configType
+    
+    if [[ "${configType}" == "1" ]]; then
+        # 导入VLESS链接
+        echo
+        read -r -p "请输入VLESS分享链接:" vlessUrl
+        if [[ -z "${vlessUrl}" ]]; then
+            echoContent red " ---> VLESS链接不可为空"
+            exit 0
+        fi
+        
+        # 解析VLESS链接
+        parseVlessUrl "${vlessUrl}"
+        
+        if [[ -z "${vlessServer}" || -z "${vlessPort}" || -z "${vlessUUID}" ]]; then
+            echoContent red " ---> VLESS链接解析失败，请检查链接格式"
+            exit 0
+        fi
+        
+        echoContent green " ---> 解析成功"
+        echoContent yellow " 服务器: ${vlessServer}"
+        echoContent yellow " 端口: ${vlessPort}"
+        echoContent yellow " UUID: ${vlessUUID}"
+        echoContent yellow " 安全: ${vlessSecurity}"
+        echoContent yellow " 传输类型: ${vlessType}"
+        [[ -n "${vlessPath}" ]] && echoContent yellow " 路径: ${vlessPath}"
+        [[ -n "${vlessSNI}" ]] && echoContent yellow " SNI: ${vlessSNI}"
+        [[ -n "${vlessHost}" ]] && echoContent yellow " Host: ${vlessHost}"
+        echo
+    else
+        # 手动配置
+        echo
+        read -r -p "请输入VLESS服务器地址:" vlessServer
+        if [[ -z "${vlessServer}" ]]; then
+            echoContent red " ---> 服务器地址不可为空"
+            exit 0
+        fi
+        echo
+        read -r -p "请输入VLESS端口:" vlessPort
+        if [[ -z "${vlessPort}" ]]; then
+            echoContent red " ---> 端口不可为空"
+            exit 0
+        fi
+        echo
+        read -r -p "请输入UUID:" vlessUUID
+        if [[ -z "${vlessUUID}" ]]; then
+            echoContent red " ---> UUID不可为空"
+            exit 0
+        fi
+        echo
+        read -r -p "请输入传输类型 (tcp/ws/grpc，默认tcp):" vlessType
+        [[ -z "${vlessType}" ]] && vlessType="tcp"
+        echo
+        read -r -p "请输入安全类型 (none/tls，默认tls):" vlessSecurity
+        [[ -z "${vlessSecurity}" ]] && vlessSecurity="tls"
+        
+        if [[ "${vlessType}" == "ws" ]]; then
+            echo
+            read -r -p "请输入WebSocket路径 (默认/):" vlessPath
+            [[ -z "${vlessPath}" ]] && vlessPath="/"
+            echo
+            read -r -p "请输入Host (可选):" vlessHost
+        fi
+        
+        if [[ "${vlessSecurity}" == "tls" ]]; then
+            echo
+            read -r -p "请输入SNI (可选):" vlessSNI
+        fi
     fi
     
-    echoContent red "=============================================================="
-    echoContent yellow "录入示例:netflix,openai,youtube\n"
-    read -r -p "请按照上面示例录入要添加的域名:" domainList
+    # 生成sing-box配置
+    if [[ -n "${singBoxConfigPath}" ]]; then
+        local tlsConfig=""
+        if [[ "${vlessSecurity}" == "tls" ]]; then
+            tlsConfig="\"tls\": {
+                \"enabled\": true,
+                \"server_name\": \"${vlessSNI:-${vlessServer}}\",
+                \"insecure\": false
+            },"
+        fi
+        
+        local transportConfig=""
+        if [[ "${vlessType}" == "ws" ]]; then
+            transportConfig="\"transport\": {
+                \"type\": \"ws\",
+                \"path\": \"${vlessPath}\",
+                \"headers\": {
+                    \"Host\": \"${vlessHost:-${vlessServer}}\"
+                }
+            },"
+        elif [[ "${vlessType}" == "grpc" ]]; then
+            transportConfig="\"transport\": {
+                \"type\": \"grpc\",
+                \"service_name\": \"${vlessPath}\"
+            },"
+        fi
+        
+        cat <<EOF >"${singBoxConfigPath}vless_outbound.json"
+{
+    "outbounds":[
+        {
+            "type": "vless",
+            "tag": "vless_outbound",
+            "server": "${vlessServer}",
+            "server_port": ${vlessPort},
+            "uuid": "${vlessUUID}",
+            ${tlsConfig}
+            ${transportConfig}
+            "packet_encoding": "xudp"
+        }
+    ]
+}
+EOF
+    fi
+    
+    # 生成xray配置
+    if [[ "${coreInstallType}" == "1" ]]; then
+        local tlsSettings=""
+        if [[ "${vlessSecurity}" == "tls" ]]; then
+            tlsSettings="\"streamSettings\": {
+                \"security\": \"tls\",
+                \"tlsSettings\": {
+                    \"serverName\": \"${vlessSNI:-${vlessServer}}\",
+                    \"allowInsecure\": false
+                },
+                \"network\": \"${vlessType}\""
+            
+            if [[ "${vlessType}" == "ws" ]]; then
+                tlsSettings="${tlsSettings},
+                \"wsSettings\": {
+                    \"path\": \"${vlessPath}\",
+                    \"headers\": {
+                        \"Host\": \"${vlessHost:-${vlessServer}}\"
+                    }
+                }"
+            elif [[ "${vlessType}" == "grpc" ]]; then
+                tlsSettings="${tlsSettings},
+                \"grpcSettings\": {
+                    \"serviceName\": \"${vlessPath}\"
+                }"
+            fi
+            
+            tlsSettings="${tlsSettings}
+            },"
+        fi
+        
+        cat <<EOF >/etc/v2ray-agent/xray/conf/vless_outbound.json
+{
+    "outbounds": [
+        {
+            "protocol": "vless",
+            "tag": "vless_outbound",
+            "settings": {
+                "vnext": [
+                    {
+                        "address": "${vlessServer}",
+                        "port": ${vlessPort},
+                        "users": [
+                            {
+                                "id": "${vlessUUID}",
+                                "encryption": "none"
+                            }
+                        ]
+                    }
+                ]
+            },
+            ${tlsSettings}
+        }
+    ]
+}
+EOF
+    fi
+}
 
-    if [[ -z "${domainList}" ]]; then
-        echoContent red " ---> 域名不可为空"
-        addShadowsocksRoutingRules
-        return
+# 设置VLESS出站路由规则
+setVlessOutboundRouting() {
+    if [[ "$1" == "addRules" && ! -f "${singBoxConfigPath}vless_outbound_route.json" && ! -f "${configPath}09_routing.json" ]]; then
+        echoContent red " ---> 请先添加VLESS出站后再添加分流规则"
+        exit 0
     fi
 
-    addInstallRouting Shadowsocks-out outboundTag "${domainList}"
-    reloadCore
-    echoContent green " ---> 添加Shadowsocks分流规则成功"
-    shadowsocksRouting
+    echoContent red "=============================================================="
+    echoContent skyBlue "请输入要分流的域名\n"
+    echoContent yellow "支持Xray-core geosite匹配，支持sing-box1.8+ rule_set匹配\n"
+    echoContent yellow "非增量添加，会替换原有规则\n"
+    echoContent yellow "当输入的规则匹配到geosite或者rule_set后会使用相应的规则\n"
+    echoContent yellow "如无法匹配则，则使用domain精确匹配\n"
+    echoContent yellow "录入示例:netflix,openai,v2ray-agent.com\n"
+    read -r -p "域名:" vlessRoutingDomain
+    if [[ -z "${vlessRoutingDomain}" ]]; then
+        echoContent red " ---> 域名不可为空"
+        exit 0
+    fi
+    
+    # 添加sing-box路由规则
+    addSingBoxRouteRule "vless_outbound" "${vlessRoutingDomain}" "vless_outbound_route"
+    addSingBoxOutbound "01_direct_outbound"
+
+    # 添加xray路由规则
+    if [[ "${coreInstallType}" == "1" ]]; then
+        unInstallRouting "vless_outbound" "outboundTag"
+        local domainRules=[]
+        while read -r line; do
+            local geositeStatus
+            geositeStatus=$(curl -s "https://api.github.com/repos/v2fly/domain-list-community/contents/data/${line}" | jq .message)
+
+            if [[ "${geositeStatus}" == "null" ]]; then
+                domainRules=$(echo "${domainRules}" | jq -r ". += [\"geosite:${line}\"]")
+            else
+                domainRules=$(echo "${domainRules}" | jq -r ". += [\"domain:${line}\"]")
+            fi
+        done < <(echo "${vlessRoutingDomain}" | tr ',' '\n')
+        
+        if [[ ! -f "${configPath}09_routing.json" ]]; then
+            cat <<EOF >${configPath}09_routing.json
+{
+    "routing":{
+        "rules": []
+    }
+}
+EOF
+        fi
+        routing=$(jq -r ".routing.rules += [{\"type\": \"field\",\"domain\": ${domainRules},\"outboundTag\": \"vless_outbound\"}]" ${configPath}09_routing.json)
+        echo "${routing}" | jq . >${configPath}09_routing.json
+    fi
+}
+
+# 查看VLESS分流规则
+showVlessRoutingRules() {
+    echoContent skyBlue "\n==================== VLESS分流规则 =====================\n"
+    
+    if [[ -f "${singBoxConfigPath}vless_outbound_route.json" ]]; then
+        echoContent yellow "sing-box路由规则："
+        jq -r '.route.rules[0]' "${singBoxConfigPath}vless_outbound_route.json"
+    fi
+    
+    if [[ -f "${configPath}09_routing.json" ]]; then
+        echoContent yellow "\nXray路由规则："
+        jq -r '.routing.rules[] | select(.outboundTag=="vless_outbound")' "${configPath}09_routing.json"
+    fi
+    
+    if [[ ! -f "${singBoxConfigPath}vless_outbound_route.json" && ! -f "${configPath}09_routing.json" ]]; then
+        echoContent red " ---> 未配置分流规则"
+    fi
+}
+
+# 移除VLESS分流
+removeVlessRouting() {
+    echoContent yellow "\n==================== 卸载 VLESS分流 =====================\n"
+    echoContent red "确认卸载？会删除所有VLESS分流配置 [y/n]"
+    read -r -p "请选择:" removeStatus
+    
+    if [[ "${removeStatus}" == "y" ]]; then
+        # 移除sing-box配置
+        if [[ -f "${singBoxConfigPath}vless_outbound.json" ]]; then
+            rm "${singBoxConfigPath}vless_outbound.json"
+        fi
+        if [[ -f "${singBoxConfigPath}vless_outbound_route.json" ]]; then
+            rm "${singBoxConfigPath}vless_outbound_route.json"
+        fi
+        
+        # 移除xray配置
+        if [[ -f "/etc/v2ray-agent/xray/conf/vless_outbound.json" ]]; then
+            rm "/etc/v2ray-agent/xray/conf/vless_outbound.json"
+        fi
+        
+        unInstallRouting "vless_outbound" "outboundTag"
+        
+        reloadCore
+        echoContent green " ---> 卸载成功"
+    else
+        echoContent red " ---> 取消卸载"
+    fi
 }
 
 # 重启核心
@@ -8838,6 +8311,7 @@ sniRouting() {
     echoContent red "\n=============================================================="
     echoContent yellow "# 注意事项"
     echoContent yellow "# 使用教程：https://www.v2ray-agent.com/archives/1683226921000 \n"
+    echoContent yellow "# sing-box不支持规则集，仅支持指定域名。\n"
 
     echoContent yellow "1.添加"
     echoContent yellow "2.卸载"
@@ -8857,14 +8331,14 @@ setUnlockSNI() {
     read -r -p "请输入分流的SNI IP:" setSNIP
     if [[ -n ${setSNIP} ]]; then
         echoContent red "=============================================================="
-        echoContent yellow "录入示例:netflix,disney,hulu"
-        read -r -p "请按照上面示例录入域名:" domainList
 
-        if [[ -n "${domainList}" ]]; then
+        if [[ "${coreInstallType}" == 1 ]]; then
+            echoContent yellow "录入示例:netflix,disney,hulu"
+            read -r -p "请按照上面示例录入域名:" xrayDomainList
             local hosts={}
             while read -r domain; do
                 hosts=$(echo "${hosts}" | jq -r ".\"geosite:${domain}\"=\"${setSNIP}\"")
-            done < <(echo "${domainList}" | tr ',' '\n')
+            done < <(echo "${xrayDomainList}" | tr ',' '\n')
             cat <<EOF >${configPath}11_dns.json
 {
     "dns": {
@@ -8876,14 +8350,15 @@ setUnlockSNI() {
     }
 }
 EOF
-            echoContent red " ---> SNI反向代理分流成功"
-            reloadCore
-        else
-            echoContent red " ---> 域名不可为空"
         fi
-
+        if [[ -n "${singBoxConfigPath}" ]]; then
+            echoContent yellow "录入示例:www.netflix.com,www.google.com"
+            read -r -p "请按照上面示例录入域名:" singboxDomainList
+            addSingBoxDNSConfig "${setSNIP}" "${singboxDomainList}" "predefined"
+        fi
+        echoContent yellow " ---> SNI反向代理分流成功"
+        reloadCore
     else
-
         echoContent red " ---> SNI IP不可为空"
     fi
     exit 0
@@ -8928,6 +8403,7 @@ EOF
 addSingBoxDNSConfig() {
     local ip=$1
     local domainList=$2
+    local actionType=$3
 
     local rules=
     rules=$(initSingBoxRules "${domainList}" "dns")
@@ -8945,17 +8421,48 @@ addSingBoxDNSConfig() {
         ruleSetTag=$(echo "${ruleSet}" | jq '.|map(.tag)')
     fi
     if [[ -n "${singBoxConfigPath}" ]]; then
-        cat <<EOF >"${singBoxConfigPath}dns.json"
+        if [[ "${actionType}" == "predefined" ]]; then
+            local predefined={}
+            while read -r line; do
+                predefined=$(echo "${predefined}" | jq ".\"${line}\"=\"${ip}\"")
+            done < <(echo "${domainList}" | tr ',' '\n' | grep -v '^$' | sort -n | uniq | paste -sd ',' | tr ',' '\n')
+
+            cat <<EOF >"${singBoxConfigPath}dns.json"
+{
+  "dns": {
+    "servers": [
+        {
+            "tag": "local",
+            "type": "local"
+        },
+        {
+            "tag": "hosts",
+            "type": "hosts",
+            "predefined": ${predefined}
+        }
+    ],
+    "rules": [
+        {
+            "domain_regex":${domainRules},
+            "server":"hosts"
+        }
+    ]
+  }
+}
+EOF
+        else
+            cat <<EOF >"${singBoxConfigPath}dns.json"
 {
   "dns": {
     "servers": [
       {
         "tag": "local",
-        "address": "local"
+        "type": "local"
       },
       {
         "tag": "dnsRouting",
-        "address": "${ip}"
+        "type": "udp",
+        "server": "${ip}"
       }
     ],
     "rules": [
@@ -8971,6 +8478,7 @@ addSingBoxDNSConfig() {
   }
 }
 EOF
+        fi
     fi
 }
 # 设置dns
@@ -9021,7 +8529,7 @@ EOF
     "dns": {
         "servers":[
             {
-                "address":"local"
+                "type":"local"
             }
         ]
     }
@@ -9038,17 +8546,33 @@ EOF
 
 # 移除SNI分流
 removeUnlockSNI() {
-    cat <<EOF >${configPath}11_dns.json
+    if [[ "${coreInstallType}" == 1 ]]; then
+        cat <<EOF >${configPath}11_dns.json
 {
-	"dns": {
-		"servers": [
-			"localhost"
-		]
-	}
+    "dns": {
+        "servers": [
+            "localhost"
+        ]
+    }
 }
 EOF
-    reloadCore
+    fi
 
+    if [[ "${coreInstallType}" == "2" && -f "${singBoxConfigPath}dns.json" ]]; then
+        cat <<EOF >${singBoxConfigPath}dns.json
+{
+    "dns": {
+        "servers":[
+            {
+                "type":"local"
+            }
+        ]
+    }
+}
+EOF
+    fi
+
+    reloadCore
     echoContent green " ---> 卸载成功"
 
     exit 0
@@ -9663,6 +9187,7 @@ proxy-groups:
       - ${subscribeSalt}_provider
     proxies:
       - 自动选择
+      - 手动切换
       - DIRECT
 
   - name: Telegram
@@ -9717,21 +9242,26 @@ proxy-groups:
     use:
       - ${subscribeSalt}_provider
     proxies:
+      - 手动切换
       - 自动选择
+
+
   - name: OpenAI
     type: select
     use:
       - ${subscribeSalt}_provider
     proxies:
-      - 自动选择
       - 手动切换
+      - 自动选择
+
   - name: ClaudeAI
     type: select
     use:
       - ${subscribeSalt}_provider
     proxies:
-      - 自动选择
       - 手动切换
+      - 自动选择
+
   - name: Disney
     type: select
     use:
@@ -10611,17 +10141,20 @@ menu() {
     cd "$HOME" || exit
     echoContent red "\n=============================================================="
     echoContent green "作者：mack-a"
-    echoContent green "当前版本：v3.4.30"
+    echoContent green "当前版本：v3.4.32"
     echoContent green "Github：https://github.com/mack-a/v2ray-agent"
     echoContent green "描述：八合一共存脚本\c"
     showInstallStatus
     checkWgetShowProgress
     echoContent red "\n=========================== 推广区============================"
     echoContent red "                                              "
-    echoContent green "VPS选购攻略：https://www.v2ray-agent.com/archives/1679975663984"
-    echoContent green "年付10美金低价VPS AS4837：https://www.v2ray-agent.com/archives/racknerdtao-can-zheng-li-nian-fu-10mei-yuan"
-    echoContent green "优质常驻套餐DMIT CN2-GIA：https://www.v2ray-agent.com/archives/186cee7b-9459-4e57-b9b2-b07a4f36931c"
-    echoContent green "VPS探针：https://ping.v2ray-agent.com/"
+    echoContent yellow "VPS选购攻略"
+    echoContent green "https://www.v2ray-agent.com/archives/1679975663984"
+    echoContent yellow "年付10美金低价VPS AS4837"
+    echoContent green "https://www.v2ray-agent.com/archives/racknerdtao-can-zheng-li-nian-fu-10mei-yuan"
+    echoContent yellow "优质常驻套餐DMIT CN2-GIA"
+    echoContent green "https://www.v2ray-agent.com/archives/186cee7b-9459-4e57-b9b2-b07a4f36931c"
+    echoContent yellow "VPS探针：https://ping.v2ray-agent.com/"
     echoContent red "=============================================================="
     if [[ -n "${coreInstallType}" ]]; then
         echoContent yellow "1.重新安装"

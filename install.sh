@@ -6830,7 +6830,7 @@ EOF
     fi
 
     while read -r line; do
-        if echo "${routingRule}" | grep -q "${line}"; then
+        if echo "${routingRule}" | grep -qF "${line}"; then
             echoContent yellow " ---> ${line}已存在，跳过"
         else
             local geositeStatus
@@ -8162,7 +8162,7 @@ setSocks5OutboundRouting() {
         unInstallRouting "socks5_outbound" "outboundTag"
         local domainRules=[]
         while read -r line; do
-            if echo "${routingRule}" | grep -q "${line}"; then
+            if echo "${routingRule}" | grep -qF "${line}"; then
                 echoContent yellow " ---> ${line}已存在，跳过"
             else
                 local geositeStatus
